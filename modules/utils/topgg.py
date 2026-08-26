@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -85,13 +86,33 @@ def _vote(bot_id, token):
     # connections from an unrecognized origin unless this is set - without it,
     # Chrome launches fine on its own but DrissionPage's connection to it fails.
     options.set_argument('--remote-allow-origins=*')
+    # Trim memory usage - this only needs to load a couple of simple pages,
+    # not act as a full browser, and RAM is tight on a free instance.
+    options.set_argument('--disable-extensions')
+    options.set_argument('--disable-background-networking')
+    options.set_argument('--disable-default-apps')
+    options.set_argument('--disable-sync')
+    options.set_argument('--disable-translate')
+    options.set_argument('--metrics-recording-only')
+    options.set_argument('--mute-audio')
+    options.set_argument('--no-first-run')
+    options.set_argument('--disable-backgrounding-occluded-windows')
+    options.set_argument('--disable-renderer-backgrounding')
+    options.set_argument('--js-flags=--max-old-space-size=128')
 
     # The launch/connect step itself is what fails intermittently under
     # resource contention (e.g. the bot busy hunting/battling at the same
     # moment, on a resource-limited free instance) - retry it specifically,
-    # separately from the login-flow retry loop below.
+    # separately from the login-flow retry loop below. A failed attempt can
+    # leave an orphaned Chrome process behind (it started, but the Python
+    # side never finished connecting to it) - kill any stragglers before each
+    # try so retries don't pile up multiple zombie processes eating RAM.
     page = None
     for launch_attempt in range(3):
+        try:
+            subprocess.run(['pkill', '-f', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         try:
             page = ChromiumPage(options)
             break
@@ -100,6 +121,10 @@ def _vote(bot_id, token):
             if launch_attempt < 2:
                 time.sleep(5)
     if page is None:
+        try:
+            subprocess.run(['pkill', '-f', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         logger.error('Failed to launch/connect to the browser after 3 attempts')
         return False
     try:
