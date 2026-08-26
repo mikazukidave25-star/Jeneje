@@ -221,10 +221,13 @@ def api_logs():
 
 @app.route('/api/debug/chrome')
 def debug_chrome():
-    """Runs Chromium directly and returns its raw stdout/stderr/exit code, so
-    the actual launch error can be inspected without shell access (the Shell
-    tab in Render's dashboard is a paid-plan-only feature)."""
-    import subprocess
+    """Tries the exact same DrissionPage ChromiumPage() connection topgg.py
+    uses, so the real failure point can be inspected without shell access
+    (the Shell tab in Render's dashboard is a paid-plan-only feature). A
+    plain subprocess run already confirmed the Chromium binary itself works -
+    this specifically tests DrissionPage's launch+connect mechanism."""
+    import traceback
+    from DrissionPage import ChromiumOptions, ChromiumPage
     from modules.utils.topgg import find_browser
 
     path = find_browser()
@@ -232,20 +235,16 @@ def debug_chrome():
         return flask.jsonify({'error': 'find_browser() returned None - no Chrome/Chromium binary found at any known path'}), 500
 
     try:
-        result = subprocess.run(
-            [path, '--headless', '--no-sandbox', '--disable-gpu', '--dump-dom', 'about:blank'],
-            capture_output=True, text=True, timeout=30,
-        )
-        return flask.jsonify({
-            'browser_path': path,
-            'returncode': result.returncode,
-            'stdout': result.stdout,
-            'stderr': result.stderr,
-        })
-    except subprocess.TimeoutExpired:
-        return flask.jsonify({'browser_path': path, 'error': 'Timed out after 30s - the browser process likely hung or was killed (possibly OOM)'}), 500
-    except Exception as e:
-        return flask.jsonify({'browser_path': path, 'error': str(e)}), 500
+        options = ChromiumOptions().set_browser_path(path).auto_port()
+        options.headless(True)
+        options.set_argument('--no-sandbox')
+        options.set_argument('--disable-dev-shm-usage')
+        page = ChromiumPage(options)
+        title = page.title
+        page.quit()
+        return flask.jsonify({'browser_path': path, 'success': True, 'title': title})
+    except Exception:
+        return flask.jsonify({'browser_path': path, 'success': False, 'traceback': traceback.format_exc()}), 500
 
 
 @socketio.on('connect')
