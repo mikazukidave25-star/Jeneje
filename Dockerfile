@@ -24,6 +24,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxdamage1 \
     libxfixes3 \
     libxrandr2 \
+    libxrender1 \
+    libxi6 \
+    libxtst6 \
+    libxext6 \
+    libx11-6 \
+    libxcb1 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libcairo2 \
+    libgtk-3-0 \
+    libgdk-pixbuf-2.0-0 \
+    libglib2.0-0 \
+    dbus \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
