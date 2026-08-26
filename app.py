@@ -219,6 +219,35 @@ def api_logs():
     return flask.jsonify({'logs': logs, 'has_more': has_more, 'names': handler.get_names()})
 
 
+@app.route('/api/debug/chrome')
+def debug_chrome():
+    """Runs Chromium directly and returns its raw stdout/stderr/exit code, so
+    the actual launch error can be inspected without shell access (the Shell
+    tab in Render's dashboard is a paid-plan-only feature)."""
+    import subprocess
+    from modules.utils.topgg import find_browser
+
+    path = find_browser()
+    if not path:
+        return flask.jsonify({'error': 'find_browser() returned None - no Chrome/Chromium binary found at any known path'}), 500
+
+    try:
+        result = subprocess.run(
+            [path, '--headless', '--no-sandbox', '--disable-gpu', '--dump-dom', 'about:blank'],
+            capture_output=True, text=True, timeout=30,
+        )
+        return flask.jsonify({
+            'browser_path': path,
+            'returncode': result.returncode,
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+        })
+    except subprocess.TimeoutExpired:
+        return flask.jsonify({'browser_path': path, 'error': 'Timed out after 30s - the browser process likely hung or was killed (possibly OOM)'}), 500
+    except Exception as e:
+        return flask.jsonify({'browser_path': path, 'error': str(e)}), 500
+
+
 @socketio.on('connect')
 def handle_connect():
     ws.emit('captcha_count', {'count': cache.count()}, room=flask.request.sid)
