@@ -1,0 +1,337 @@
+{% extends "base.html" %}
+{% block title %}Data{% endblock %}
+
+{% block extra_css %}
+.data-layout {
+    display: grid; grid-template-columns: 200px 1fr;
+    gap: 0; height: calc(100vh - 48px);
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+}
+
+.file-list {
+    border-right: 1px solid var(--border); padding: 8px;
+    overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+}
+.file-item {
+    padding: 8px 12px; border-radius: var(--radius-sm);
+    font-size: 12px; color: var(--text-secondary);
+    cursor: pointer; transition: all var(--transition);
+    display: flex; align-items: center; gap: 8px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.file-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.file-item.active { background: var(--bg-tertiary); color: var(--accent); }
+.file-item svg { width: 14px; height: 14px; flex-shrink: 0; }
+.file-item.modified::after {
+    content: ''; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--yellow); margin-left: auto; flex-shrink: 0;
+}
+
+.editor-wrap {
+    display: flex; flex-direction: column; min-height: 0;
+}
+.editor-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.editor-filename {
+    font-size: 12px; font-weight: 500; color: var(--text-secondary);
+    margin-right: auto;
+}
+.editor-container {
+    flex: 1; display: flex; overflow: hidden; min-height: 0;
+}
+
+.line-numbers {
+    padding: 12px 0; min-width: 44px; text-align: right;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12px; line-height: 1.7; color: var(--text-muted);
+    user-select: none; overflow: hidden; flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+.line-numbers div { padding: 0 10px 0 8px; }
+
+.editor-textarea {
+    flex: 1; width: 100%; resize: none; border: none; outline: none;
+    padding: 12px 14px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12px; line-height: 1.7;
+    background: transparent; color: var(--text-primary);
+    tab-size: 4; white-space: pre; overflow: auto;
+}
+.editor-textarea::placeholder { color: var(--text-muted); }
+
+.editor-empty {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); font-size: 13px;
+}
+
+.diff-view {
+    max-height: 60vh; overflow-y: auto;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 12px; line-height: 1.6;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px; margin-bottom: 16px;
+}
+.diff-line { white-space: pre-wrap; word-break: break-all; padding: 2px 4px; border-radius: 2px; }
+.diff-add { background: rgba(34,197,94,0.1); color: var(--green); }
+.diff-del { background: rgba(239,68,68,0.1); color: var(--red); }
+.diff-ctx { color: var(--text-muted); }
+
+@media (max-width: 768px) {
+    .data-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: calc(100vh - 76px); }
+    .file-list {
+        border-right: none; border-bottom: 1px solid var(--border);
+        flex-direction: row; overflow-x: auto; padding: 6px 8px;
+    }
+    .file-item { flex-shrink: 0; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="data-layout">
+    <div class="file-list" id="fileList"></div>
+    <div class="editor-wrap" id="editorWrap">
+        <div class="editor-empty" id="editorEmpty">Select a file</div>
+
+        <div class="editor-toolbar" id="editorToolbar" style="display:none">
+            <span class="editor-filename" id="editorFilename"></span>
+            <button class="btn btn-sm" id="viewBtn" onclick="viewChanges()" style="display:none">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/></svg>
+                View
+            </button>
+            <button class="btn btn-sm" id="cancelBtn" onclick="cancelChanges()" style="display:none">Cancel</button>
+            <button class="btn btn-sm btn-primary" id="saveBtn" onclick="saveFile()" style="display:none">Save</button>
+        </div>
+
+        <div class="editor-container" id="editorContainer" style="display:none">
+            <div class="line-numbers" id="lineNumbers"></div>
+            <textarea class="editor-textarea" id="editorTextarea" placeholder="Empty file" spellcheck="false"></textarea>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="diffModal">
+    <div class="modal" style="max-width:800px; width: 90%;">
+        <div class="modal-title">Changes</div>
+        <div class="diff-view" id="diffView"></div>
+        <div class="modal-actions">
+            <button class="btn" onclick="closeDiff()">Close</button>
+            <button class="btn btn-primary" onclick="closeDiff(); saveFile()">Save</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let files = [];
+    let currentFile = null;
+    let originalContent = '';
+    let isModified = false;
+
+    const fileList = document.getElementById('fileList');
+    const editorEmpty = document.getElementById('editorEmpty');
+    const editorToolbar = document.getElementById('editorToolbar');
+    const editorContainer = document.getElementById('editorContainer');
+    const editorFilename = document.getElementById('editorFilename');
+    const textarea = document.getElementById('editorTextarea');
+    const lineNumbers = document.getElementById('lineNumbers');
+    const viewBtn = document.getElementById('viewBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    async function loadFiles() {
+        files = await api('/api/data/files');
+        renderFileList();
+    }
+
+    function renderFileList() {
+        fileList.innerHTML = '';
+        files.forEach(f => {
+            const item = document.createElement('div');
+            item.className = 'file-item' + (f === currentFile ? ' active' : '');
+            item.dataset.file = f;
+
+            const ext = f.split('.').pop();
+            const icon = ext === 'json'
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h7l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v4h4"/><path d="M9 13h3"/><path d="M9 17h2"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h7l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v4h4"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>';
+
+            item.innerHTML = icon + f;
+            item.onclick = () => openFile(f);
+            fileList.appendChild(item);
+        });
+    }
+    async function openFile(filename) {
+        if (currentFile && isModified) {
+            showConfirm('Unsaved Changes', `Discard changes to ${currentFile}?`, () => {
+                _doOpen(filename);
+            });
+            return;
+        }
+        _doOpen(filename);
+    }
+
+    async function _doOpen(filename) {
+        const res = await api(`/api/data/read?file=${encodeURIComponent(filename)}`);
+        if (!res.ok) {
+            showToast(res.error || 'Failed to read file', 'error');
+            return;
+        }
+
+        currentFile = filename;
+        originalContent = res.content;
+        isModified = false;
+
+        editorEmpty.style.display = 'none';
+        editorToolbar.style.display = 'flex';
+        editorContainer.style.display = 'flex';
+        editorFilename.textContent = filename;
+
+        textarea.value = res.content;
+        updateLineNumbers();
+        updateButtons();
+        renderFileList();
+    }
+    function updateLineNumbers() {
+        const lines = textarea.value.split('\n').length;
+        let html = '';
+        for (let i = 1; i <= lines; i++) {
+            html += `<div>${i}</div>`;
+        }
+        lineNumbers.innerHTML = html;
+    }
+    textarea.addEventListener('scroll', () => {
+        lineNumbers.scrollTop = textarea.scrollTop;
+    });
+
+    textarea.addEventListener('input', () => {
+        updateLineNumbers();
+        isModified = textarea.value !== originalContent;
+        updateButtons();
+        updateFileModifiedState();
+    });
+    textarea.addEventListener('keydown', e => {
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            textarea.value = textarea.value.substring(0, start) + '    ' + textarea.value.substring(end);
+            textarea.selectionStart = textarea.selectionEnd = start + 4;
+            textarea.dispatchEvent(new Event('input'));
+        }
+    });
+
+    function updateButtons() {
+        viewBtn.style.display = isModified ? '' : 'none';
+        cancelBtn.style.display = isModified ? '' : 'none';
+        saveBtn.style.display = isModified ? '' : 'none';
+    }
+
+    function updateFileModifiedState() {
+        document.querySelectorAll('.file-item').forEach(el => {
+            if (el.dataset.file === currentFile) {
+                el.classList.toggle('modified', isModified);
+            }
+        });
+    }
+    function saveFile() {
+        if (!currentFile || !isModified) return;
+
+        showConfirm('Save', `Save changes to ${currentFile}?`, async () => {
+            const res = await api('/api/data/write', 'POST', {
+                file: currentFile,
+                content: textarea.value,
+            });
+            if (res.ok) {
+                originalContent = textarea.value;
+                isModified = false;
+                updateButtons();
+                updateFileModifiedState();
+                showToast(`${currentFile} saved`, 'success');
+            } else {
+                showToast(res.error || 'Save failed', 'error');
+            }
+        });
+    }
+    function cancelChanges() {
+        if (!isModified) return;
+        showConfirm('Discard', `Discard changes to ${currentFile}?`, () => {
+            textarea.value = originalContent;
+            isModified = false;
+            updateLineNumbers();
+            updateButtons();
+            updateFileModifiedState();
+            showToast('Changes discarded');
+        });
+    }
+    function viewChanges() {
+        if (!isModified) return;
+
+        const oldLines = originalContent.split('\n');
+        const newLines = textarea.value.split('\n');
+        const dp = Array(oldLines.length + 1).fill(null).map(() => Array(newLines.length + 1).fill(0));
+        for (let i = 1; i <= oldLines.length; i++) {
+            for (let j = 1; j <= newLines.length; j++) {
+                if (oldLines[i - 1] === newLines[j - 1]) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+        }
+        let i = oldLines.length, j = newLines.length;
+        const changes = [];
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+                changes.unshift({ type: 'ctx', val: oldLines[i - 1] });
+                i--; j--;
+            } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+                changes.unshift({ type: 'add', val: newLines[j - 1] });
+                j--;
+            } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+                changes.unshift({ type: 'del', val: oldLines[i - 1] });
+                i--;
+            }
+        }
+        let html = '';
+        for (let k = 0; k < changes.length; k++) {
+            if (changes[k].type === 'del' && k + 1 < changes.length && changes[k+1].type === 'add') {
+                html += `<div class="diff-line diff-del">- ${escapeHtml(changes[k].val)}</div>`;
+                html += `<div class="diff-line diff-add">+ ${escapeHtml(changes[k+1].val)}</div>`;
+                k++;
+            } else if (changes[k].type === 'add') {
+                html += `<div class="diff-line diff-add">+ ${escapeHtml(changes[k].val)}</div>`;
+            } else if (changes[k].type === 'del') {
+                html += `<div class="diff-line diff-del">- ${escapeHtml(changes[k].val)}</div>`;
+            } else {
+                html += `<div class="diff-line diff-ctx">  ${escapeHtml(changes[k].val)}</div>`;
+            }
+        }
+
+        document.getElementById('diffView').innerHTML = html;
+        document.getElementById('diffModal').classList.add('visible');
+    }
+
+    function closeDiff() {
+        document.getElementById('diffModal').classList.remove('visible');
+    }
+    document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            if (currentFile && isModified) saveFile();
+        }
+    });
+    window.addEventListener('beforeunload', e => {
+        if (isModified) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+
+    loadFiles();
+</script>
+{% endblock %}

@@ -1,0 +1,400 @@
+﻿{% extends "base.html" %}
+{% block title %}Terminal{% endblock %}
+
+{% block extra_css %}
+.dash-grid {
+    display: grid; grid-template-columns: 1fr;
+    gap: 16px; height: calc(100vh - 48px);
+    height: calc(100dvh - 48px);
+    grid-template-rows: auto 1fr;
+}
+
+.control-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 18px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: var(--radius);
+}
+
+.runtime { display: flex; align-items: center; min-width: 0; }
+
+.btn-main {
+    padding: 6px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+    border: none; cursor: pointer; transition: all 0.2s; color: #fff; text-transform: uppercase;
+}
+.btn-main.start { background: var(--green); }
+.btn-main.start:hover { background: #16a34a; }
+.btn-main.stop { background: var(--red); }
+.btn-main.stop:hover { background: #dc2626; }
+
+.terminal {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); display: flex; flex-direction: column;
+    overflow: hidden; min-height: 0;
+}
+
+.terminal-header {
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.terminal-dots { display: flex; gap: 5px; }
+.terminal-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--border-light); }
+.terminal-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+.terminal-body {
+    flex: 1; overflow-y: auto; padding: 12px 16px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 11.5px; line-height: 1.7; min-height: 0;
+}
+
+.log-line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-all; }
+.log-line.hidden { display: none; }
+.log-time { color: var(--text-muted); flex-shrink: 0; min-width: 58px; }
+.log-level { flex-shrink: 0; min-width: 48px; font-weight: 600; }
+.log-level.DEBUG { color: var(--text-muted); }
+.log-level.INFO { color: var(--blue); }
+.log-level.WARNING { color: var(--yellow); }
+.log-level.ERROR { color: var(--red); }
+.log-level.CRITICAL { color: var(--red); }
+.log-name { color: var(--text-muted); flex-shrink: 0; }
+.log-msg { color: var(--text-primary); flex: 1; }
+
+.filter-panel {
+    border-bottom: 1px solid var(--border); padding: 12px 16px;
+    display: none; flex-direction: column; gap: 10px; flex-shrink: 0;
+}
+.filter-panel.open { display: flex; }
+
+.filter-section { display: flex; flex-direction: column; gap: 4px; }
+.filter-section-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; }
+
+.filter-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+    padding: 3px 9px; border-radius: 4px; font-size: 11px;
+    border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+    cursor: pointer; transition: all 0.15s; user-select: none;
+}
+.chip:hover { color: var(--text-secondary); border-color: var(--border-light); }
+.chip.active { color: var(--text-primary); border-color: var(--text-muted); background: var(--bg-tertiary); }
+
+.search-row { display: flex; gap: 8px; align-items: center; }
+.search-input {
+    flex: 1; padding: 5px 10px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: var(--bg-secondary);
+    color: var(--text-primary); font-size: 12px; outline: none;
+}
+.search-input:focus { border-color: var(--text-muted); }
+.search-input::placeholder { color: var(--text-muted); }
+
+.search-mode-toggle { display: flex; gap: 2px; flex-shrink: 0; }
+.mode-btn {
+    padding: 4px 10px; border-radius: 4px; font-size: 10px; font-weight: 600;
+    border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+    cursor: pointer; transition: all 0.15s; text-transform: uppercase;
+}
+.mode-btn.active { color: var(--text-primary); border-color: var(--text-muted); background: var(--bg-tertiary); }
+
+@media (max-width: 768px) {
+    .dash-grid { height: calc(100vh - 76px); }
+    .control-bar { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
+    .control-bar .runtime { flex: 1; min-width: 0; }
+    .control-bar .btn-main { width: 100%; text-align: center; }
+    .filter-chips { max-height: 120px; overflow-y: auto; }
+}
+{% endblock %}
+
+{% block content %}
+<div class="dash-grid">
+    <div class="control-bar">
+        <span class="runtime" id="runtime" style="font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; font-weight: 500;">00:00:00</span>
+        <button class="btn-main start" id="mainBtn" onclick="toggleBot()">Start</button>
+    </div>
+
+    <div class="terminal">
+        <div class="terminal-header">
+            <div class="terminal-dots"><span></span><span></span><span></span></div>
+            <div class="terminal-actions">
+                <button class="btn btn-sm" id="filterBtn" onclick="toggleFilterPanel()" style="padding:3px 10px; font-size:11px;">Filter</button>
+                <button class="btn btn-sm" id="scrollLockBtn" onclick="toggleScrollLock()" title="Auto-scroll" style="opacity:1; padding:3px 8px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="filter-panel" id="filterPanel">
+            <div class="filter-section">
+                <span class="filter-section-title">Level</span>
+                <div class="filter-chips" id="levelChips"></div>
+            </div>
+            <div class="filter-section">
+                <span class="filter-section-title">Logger</span>
+                <div class="filter-chips" id="nameChips"></div>
+            </div>
+            <div class="filter-section">
+                <span class="filter-section-title">Search</span>
+                <div class="search-row">
+                    <input type="text" class="search-input" id="searchInput" placeholder="Search content..." oninput="onSearchInput()">
+                    <div class="search-mode-toggle">
+                        <button class="mode-btn active" id="smartBtn" onclick="setSearchMode('smart')">Smart</button>
+                        <button class="mode-btn" id="strictBtn" onclick="setSearchMode('strict')">Strict</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="terminal-body" id="terminalBody"></div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+    const ALL_LEVELS = ['INFO','WARNING','ERROR','CRITICAL','DEBUG'];
+    const chat = s => document.querySelector(s);
+
+    let isRunning=false, startTime=null, runtimeInterval=null, autoScroll=true;
+    let oldestLogSeq=null, loadingLogs=false, logEndReached=false;
+    let activeLevels=new Set(ALL_LEVELS), knownNames=new Set(), activeNames=new Set();
+    let searchQuery='', searchMode='smart', searchTimer=null;
+    let maxRenderedSeq=0, initialLoaded=false, liveQueue=[], flushId=null;
+    const seenSeqs = new Set();
+
+    const terminalBody = document.getElementById('terminalBody');
+    const mainBtn = document.getElementById('mainBtn');
+    const runtimeEl = document.getElementById('runtime');
+    const scrollLockBtn = document.getElementById('scrollLockBtn');
+    const filterPanel = document.getElementById('filterPanel');
+    const searchInput = document.getElementById('searchInput');
+
+    function toggleFilterPanel() { filterPanel.classList.toggle('open'); }
+
+    function makeChip(label, active, on) {
+        const c = document.createElement('span');
+        c.className = 'chip' + (active ? ' active' : '');
+        c.textContent = label;
+        c.onclick = on;
+        return c;
+    }
+
+    function toggleChips(boxSel, set, keys) {
+        chat(boxSel).querySelectorAll('.chip').forEach(c =>
+            c.classList.toggle('active', c.textContent === 'All' ? set.size === keys.length : set.has(c.dataset.key)));
+    }
+    const refreshLevelChips = () => toggleChips('#levelChips', activeLevels, ALL_LEVELS);
+    const refreshNameChips = () => toggleChips('#nameChips', activeNames, [...knownNames]);
+
+    function buildLevelChips() {
+        const box = chat('#levelChips');
+        box.innerHTML = '';
+        box.appendChild(makeChip('All', true, () => {
+            if (activeLevels.size === ALL_LEVELS.length) activeLevels.clear();
+            else ALL_LEVELS.forEach(v => activeLevels.add(v));
+            refreshLevelChips(); applyFilters();
+        }));
+        ALL_LEVELS.forEach(level => {
+            const c = makeChip(level, true, () => {
+                activeLevels.has(level) ? activeLevels.delete(level) : activeLevels.add(level);
+                refreshLevelChips(); applyFilters();
+            });
+            c.dataset.key = level;
+            box.appendChild(c);
+        });
+    }
+
+    function nameChip(name) {
+        const c = makeChip(name, activeNames.has(name), () => {
+            activeNames.has(name) ? activeNames.delete(name) : activeNames.add(name);
+            refreshNameChips(); applyFilters();
+        });
+        c.dataset.key = name;
+        return c;
+    }
+
+    function buildNameChips() {
+        const box = chat('#nameChips');
+        box.innerHTML = '';
+        const names = [...knownNames];
+        box.appendChild(makeChip('All', activeNames.size === names.length, () => {
+            if (activeNames.size === names.length) activeNames.clear();
+            else names.forEach(n => activeNames.add(n));
+            refreshNameChips(); applyFilters();
+        }));
+        names.forEach(n => box.appendChild(nameChip(n)));
+    }
+
+    function registerName(name) {
+        if (knownNames.has(name)) return;
+        knownNames.add(name);
+        activeNames.add(name);
+        if (chat('#nameChips').children.length) chat('#nameChips').appendChild(nameChip(name));
+    }
+
+    function setSearchMode(mode) {
+        searchMode = mode;
+        chat('#smartBtn').classList.toggle('active', mode === 'smart');
+        chat('#strictBtn').classList.toggle('active', mode === 'strict');
+        applyFilters();
+    }
+
+    function matchesFilter(e) {
+        if (!activeLevels.has(e.level) || !activeNames.has(e.name)) return false;
+        return !searchQuery || (searchMode === 'smart'
+            ? e.message.toLowerCase().includes(searchQuery.toLowerCase())
+            : e.message.includes(searchQuery));
+    }
+
+    function applyFilters() {
+        searchQuery = searchInput.value.trim();
+        terminalBody.querySelectorAll('.log-line').forEach(l =>
+            l.classList.toggle('hidden', !matchesFilter({ level: l.dataset.level, name: l.dataset.name, message: l.dataset.msg })));
+    }
+
+    function onSearchInput() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(applyFilters, 120);
+    }
+
+    function createLogLine(e) {
+        const l = document.createElement('div');
+        l.className = 'log-line';
+        Object.assign(l.dataset, { level: e.level, name: e.name, msg: e.message, seq: e.seq });
+        if (!matchesFilter(e)) l.classList.add('hidden');
+        l.innerHTML = `<span class="log-time">${e.time}</span><span class="log-level ${e.level}">${e.level.padEnd(5)}</span><span class="log-name">[${e.name}]</span><span class="log-msg">${escapeHtml(e.message)}</span>`;
+        return l;
+    }
+
+    function renderBatch(entries, prepend = false) {
+        const frag = document.createDocumentFragment();
+        let added = 0;
+        for (const e of entries) {
+            if (seenSeqs.has(e.seq)) continue;
+            seenSeqs.add(e.seq);
+            maxRenderedSeq = Math.max(maxRenderedSeq, e.seq);
+            registerName(e.name);
+            frag.appendChild(createLogLine(e));
+            added++;
+        }
+        if (!added) return;
+        if (prepend) terminalBody.insertBefore(frag, terminalBody.firstChild);
+        else terminalBody.appendChild(frag);
+        trimOverflow();
+    }
+
+    function queueLog(e) {
+        liveQueue.push(e);
+        if (flushId === null) flushId = setTimeout(flushLive, 70);
+    }
+
+    function flushLive() {
+        flushId = null;
+        const batch = liveQueue;
+        liveQueue = [];
+        renderBatch(batch);
+        if (autoScroll) scrollToBottom();
+    }
+
+    function trimOverflow() {
+        while (terminalBody.children.length > 15000) terminalBody.removeChild(terminalBody.firstChild);
+        if (terminalBody.children.length >= 15000) {
+            seenSeqs.clear();
+            terminalBody.querySelectorAll('.log-line').forEach(l => seenSeqs.add(Number(l.dataset.seq)));
+        }
+    }
+
+    async function resyncTail() {
+        if (!initialLoaded) return;
+        const atBottom = autoScroll;
+        try {
+            let cursor = maxRenderedSeq;
+            while (true) {
+                const data = await api(`/api/logs?limit=1000&after=${cursor}`);
+                const logs = data.logs || [];
+                if (!logs.length) break;
+                (data.names || []).forEach(registerName);
+                renderBatch(logs);
+                cursor = logs[logs.length - 1].seq;
+                if (!data.has_more || logs.length < 1000) break;
+            }
+        } catch (e) {}
+        if (atBottom) scrollToBottom();
+    }
+    socket.on('connect', resyncTail);
+
+    function updateOldestSeq(logs) {
+        if (logs.length) oldestLogSeq = oldestLogSeq === null ? logs[0].seq : Math.min(oldestLogSeq, logs[0].seq);
+    }
+
+    async function loadOlderLogs() {
+        if (loadingLogs || logEndReached || oldestLogSeq === null) return;
+        loadingLogs = true;
+        const top = terminalBody.scrollHeight;
+        const data = await api(`/api/logs?limit=1000&before=${oldestLogSeq}`);
+        renderBatch(data.logs, true);
+        updateOldestSeq(data.logs);
+        terminalBody.scrollTop = terminalBody.scrollHeight - top;
+        if (!data.has_more) logEndReached = true;
+        loadingLogs = false;
+        if (data.logs.length && !logEndReached && terminalBody.scrollTop <= 20) loadOlderLogs();
+    }
+
+    function scrollToBottom() { terminalBody.scrollTop = terminalBody.scrollHeight; }
+
+    function toggleScrollLock() {
+        autoScroll = !autoScroll;
+        scrollLockBtn.style.opacity = autoScroll ? '1' : '0.4';
+        if (autoScroll) scrollToBottom();
+    }
+
+    async function init() {
+        const status = await api('/api/status');
+        setRunning(status.running, status.start_time ? status.start_time * 1000 : null);
+        const data = await api('/api/logs?limit=1000');
+        knownNames = new Set(data.names);
+        activeNames = new Set(data.names);
+        renderBatch(data.logs);
+        updateOldestSeq(data.logs);
+        logEndReached = !data.has_more;
+        scrollToBottom();
+        buildLevelChips();
+        buildNameChips();
+        initialLoaded = true;
+    }
+
+    function setRunning(running, start) {
+        isRunning = running;
+        startTime = start;
+        mainBtn.textContent = running ? 'Stop' : 'Start';
+        mainBtn.className = running ? 'btn-main stop' : 'btn-main start';
+        if (running) startRuntimeCounter();
+        else { stopRuntimeCounter(); runtimeEl.textContent = '00:00:00'; }
+    }
+
+    async function toggleBot() {
+        if (isRunning) {
+            showConfirm('Stop', 'Stop all bots and reset everything?', async () => {
+                const res = await api('/api/stop', 'POST');
+                res.ok ? setRunning(false, null) || showToast('Stopped', 'success') : showToast(res.error || 'Failed', 'error');
+            });
+        } else {
+            const res = await api('/api/start', 'POST');
+            res.ok ? setRunning(true, Date.now()) || showToast('Started', 'success') : showToast(res.error || 'Failed', 'error');
+        }
+    }
+
+    function startRuntimeCounter() {
+        stopRuntimeCounter();
+        runtimeInterval = setInterval(() => {
+            if (!startTime) return;
+            const d = Math.floor((Date.now() - startTime) / 1000);
+            runtimeEl.textContent = [d / 3600, d % 3600 / 60, d % 60].map(n => String(Math.floor(n)).padStart(2, '0')).join(':');
+        }, 1000);
+    }
+
+    function stopRuntimeCounter() {
+        if (runtimeInterval) { clearInterval(runtimeInterval); runtimeInterval = null; }
+    }
+
+    socket.on('log', queueLog);
+    terminalBody.addEventListener('scroll', () => { if (terminalBody.scrollTop <= 20) loadOlderLogs(); });
+
+    init();
+</script>
+{% endblock %}

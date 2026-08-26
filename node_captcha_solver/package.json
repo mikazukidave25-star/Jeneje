@@ -1,0 +1,10 @@
+{
+  "name": "captchaly-solver-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tiny Node.js bridge so the Python bot can call the official Captchaly SDK to auto-solve hCaptcha challenges. Only exists because no verified native Python client for Captchaly is available.",
+  "main": "solve.js",
+  "dependencies": {
+    "captchaly": "latest"
+  }
+}

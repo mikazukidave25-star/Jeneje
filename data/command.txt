@@ -1,0 +1,9 @@
+# TOKEN  owner_id1,owner_id2,...  prefix1,prefix2,...
+#
+# One account per line. When a listed owner sends a message that starts
+# with one of the listed prefixes, every account under that owner runs it.
+# Send commands from an account that is NOT listed here.
+#
+# Example:
+# MFA.TOKEN_A 111222333444555666,999888777666555444 !,.
+# MFA.TOKEN_B 111222333444555666 .

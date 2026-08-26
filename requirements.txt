@@ -1,0 +1,12 @@
+git+https://github.com/dolfies/discord.py-self.git
+aiohttp
+curl_cffi
+tzlocal
+discord_protos
+flask
+flask-socketio
+requests
+brotli
+Pillow
+numpy
+DrissionPage

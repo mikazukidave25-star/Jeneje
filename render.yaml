@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: phamdat-selfbot
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DASHBOARD_PASSWORD
+        sync: false

@@ -1,0 +1,2 @@
+# 1 token + 1 bot id per 1 line
+# DISCORD_TOKEN_HERE 408785106942164992
