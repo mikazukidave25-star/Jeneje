@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # git is needed because requirements.txt installs discord.py-self straight
 # from GitHub. curl/ca-certificates are needed to fetch Node.js's setup
