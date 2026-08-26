@@ -76,7 +76,32 @@ def _vote(bot_id, token):
     vote_url = f'https://top.gg/bot/{bot_id}/vote'
     login_url = f'https://top.gg/auth/login?redir=%2Fbot%2F{bot_id}%2Fvote'
 
-    page = ChromiumPage(ChromiumOptions().set_browser_path(path).auto_port())
+    options = ChromiumOptions().set_browser_path(path).auto_port()
+    options.headless(True)
+    options.set_argument('--no-sandbox')
+    options.set_argument('--disable-dev-shm-usage')
+    options.set_argument('--disable-gpu')
+    # Newer Chrome versions reject DevTools Protocol (remote debugging)
+    # connections from an unrecognized origin unless this is set - without it,
+    # Chrome launches fine on its own but DrissionPage's connection to it fails.
+    options.set_argument('--remote-allow-origins=*')
+
+    # The launch/connect step itself is what fails intermittently under
+    # resource contention (e.g. the bot busy hunting/battling at the same
+    # moment, on a resource-limited free instance) - retry it specifically,
+    # separately from the login-flow retry loop below.
+    page = None
+    for launch_attempt in range(3):
+        try:
+            page = ChromiumPage(options)
+            break
+        except Exception as e:
+            logger.warning(f'Browser launch attempt {launch_attempt + 1}/3 failed: {e}')
+            if launch_attempt < 2:
+                time.sleep(5)
+    if page is None:
+        logger.error('Failed to launch/connect to the browser after 3 attempts')
+        return False
     try:
         for attempt in range(3):
             if _stop.is_set():
