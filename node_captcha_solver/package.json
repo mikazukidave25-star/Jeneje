@@ -1,10 +1,13 @@
 {
-  "name": "captchaly-solver-bridge",
+  "name": "node-bridge",
   "version": "1.0.0",
   "private": true,
-  "description": "Tiny Node.js bridge so the Python bot can call the official Captchaly SDK to auto-solve hCaptcha challenges. Only exists because no verified native Python client for Captchaly is available.",
-  "main": "solve.js",
+  "description": "Node.js bridges for the Python bot: Captchaly SDK for hCaptcha/Turnstile solving, and puppeteer-extra+stealth for top.gg voting (to get past Cloudflare's bot check, which DrissionPage alone couldn't).",
   "dependencies": {
-    "captchaly": "latest"
+    "captchaly": "latest",
+    "puppeteer": "^23",
+    "puppeteer-extra": "^3",
+    "puppeteer-extra-plugin-stealth": "^2"
   }
 }
+
