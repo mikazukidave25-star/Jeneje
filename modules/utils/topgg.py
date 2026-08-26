@@ -134,10 +134,12 @@ def _vote(bot_id, token):
             logger.info(f'Attempt {attempt + 1}/3, opening login')
             page.get(login_url)
             if not page.wait.ele_displayed('xpath://button[contains(., "Login with Discord")]', timeout=25):
+                logger.warning(f'Attempt {attempt + 1}/3: "Login with Discord" button never appeared (page title: {page.title!r}, url: {page.url!r})')
                 continue
             page.run_js('document.querySelectorAll("button").forEach(e=>{let t=(e.textContent||"").trim().toLowerCase();if(t.indexOf("login with discord")>=0)e.click();});')
             if _wait_url(page, 'discord.com/oauth2/authorize', 30):
                 break
+            logger.warning(f'Attempt {attempt + 1}/3: button was clicked but never reached the oauth URL (stuck at: {page.url!r})')
         auth = page.url
         if 'discord.com/oauth2/authorize' not in auth:
             logger.error('No oauth url')
