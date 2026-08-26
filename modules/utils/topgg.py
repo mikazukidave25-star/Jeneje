@@ -1,13 +1,10 @@
+import json
 import os
 import subprocess
 import sys
 import threading
-import time
-from urllib.parse import urlparse
 
-from curl_cffi import requests as curl
-from DrissionPage import ChromiumOptions, ChromiumPage
-
+from modules.utils.data_store import read_json
 from modules.utils.logger import get_logger
 
 logger = get_logger('top.gg')
@@ -36,6 +33,8 @@ SYSTEM_BROWSER_PATHS = [
     '/usr/bin/google-chrome-stable',
 ]
 
+VOTE_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'node_captcha_solver', 'vote.js')
+
 
 def stop():
     _stop.set()
@@ -57,218 +56,50 @@ def find_browser():
     return None
 
 
-def _wait_url(page, text, timeout):
-    for _ in range(timeout):
-        if _stop.is_set():
-            return False
-        if text in page.url:
-            return True
-        time.sleep(0.5)
-    return False
-
-
 def _vote(bot_id, token):
+    """Runs node_captcha_solver/vote.js (puppeteer-extra + stealth plugin) to
+    do the actual voting. DrissionPage's plain Chromium automation was
+    reliably blocked by Cloudflare's bot check on top.gg ("Just a moment...")
+    - the stealth plugin patches the headless-detection signals Cloudflare
+    looks for, which DrissionPage has no equivalent for. This reuses a script
+    the user already had working, instead of trying to replicate that
+    stealth layer in Python."""
     path = find_browser()
     if not path:
         logger.error('Browser not found for voting')
         return False
+    if not os.path.isfile(VOTE_SCRIPT):
+        logger.error(f'vote.js not found at {VOTE_SCRIPT}. Run "npm install" inside node_captcha_solver/ first.')
+        return False
+
+    settings = read_json('data/settings.json', {}) or {}
+    captchaly_key = (settings.get('captchaly') or {}).get('api_key')
+
     logger.info(f'Voting for bot {bot_id}')
+    payload = json.dumps({'token': token, 'botId': bot_id, 'chromePath': path, 'captchalyApiKey': captchaly_key})
 
-    vote_url = f'https://top.gg/bot/{bot_id}/vote'
-    login_url = f'https://top.gg/auth/login?redir=%2Fbot%2F{bot_id}%2Fvote'
-
-    options = ChromiumOptions().set_browser_path(path).auto_port()
-    options.headless(True)
-    options.set_argument('--no-sandbox')
-    options.set_argument('--disable-dev-shm-usage')
-    options.set_argument('--disable-gpu')
-    # Newer Chrome versions reject DevTools Protocol (remote debugging)
-    # connections from an unrecognized origin unless this is set - without it,
-    # Chrome launches fine on its own but DrissionPage's connection to it fails.
-    options.set_argument('--remote-allow-origins=*')
-    # Trim memory usage - this only needs to load a couple of simple pages,
-    # not act as a full browser, and RAM is tight on a free instance.
-    options.set_argument('--disable-extensions')
-    options.set_argument('--disable-background-networking')
-    options.set_argument('--disable-default-apps')
-    options.set_argument('--disable-sync')
-    options.set_argument('--disable-translate')
-    options.set_argument('--metrics-recording-only')
-    options.set_argument('--mute-audio')
-    options.set_argument('--no-first-run')
-    options.set_argument('--disable-backgrounding-occluded-windows')
-    options.set_argument('--disable-renderer-backgrounding')
-    options.set_argument('--js-flags=--max-old-space-size=128')
-
-    # The launch/connect step itself is what fails intermittently under
-    # resource contention (e.g. the bot busy hunting/battling at the same
-    # moment, on a resource-limited free instance) - retry it specifically,
-    # separately from the login-flow retry loop below. A failed attempt can
-    # leave an orphaned Chrome process behind (it started, but the Python
-    # side never finished connecting to it) - kill any stragglers before each
-    # try so retries don't pile up multiple zombie processes eating RAM.
-    page = None
-    for launch_attempt in range(3):
-        try:
-            subprocess.run(['pkill', '-f', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        try:
-            page = ChromiumPage(options)
-            break
-        except Exception as e:
-            logger.warning(f'Browser launch attempt {launch_attempt + 1}/3 failed: {e}')
-            if launch_attempt < 2:
-                time.sleep(5)
-    if page is None:
-        try:
-            subprocess.run(['pkill', '-f', path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        logger.error('Failed to launch/connect to the browser after 3 attempts')
-        return False
     try:
-        for attempt in range(3):
-            if _stop.is_set():
-                return False
-            logger.info(f'Attempt {attempt + 1}/3, opening login')
-            page.get(login_url)
-            if not page.wait.ele_displayed('xpath://button[contains(., "Login with Discord")]', timeout=25):
-                logger.warning(f'Attempt {attempt + 1}/3: "Login with Discord" button never appeared (page title: {page.title!r}, url: {page.url!r})')
-                continue
-            page.run_js('document.querySelectorAll("button").forEach(e=>{let t=(e.textContent||"").trim().toLowerCase();if(t.indexOf("login with discord")>=0)e.click();});')
-            if _wait_url(page, 'discord.com/oauth2/authorize', 30):
-                break
-            logger.warning(f'Attempt {attempt + 1}/3: button was clicked but never reached the oauth URL (stuck at: {page.url!r})')
-        auth = page.url
-        if 'discord.com/oauth2/authorize' not in auth:
-            logger.error('No oauth url')
-            return False
-        logger.info('Discord authorize ok')
-
-        r = curl.post(
-            'https://discord.com/api/v9/oauth2/authorize?' + urlparse(auth).query,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/111.0',
-                     'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.5',
-                     'Content-Type': 'application/json', 'Origin': 'https://discord.com',
-                     'Referer': auth, 'Authorization': token,
-                     'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Site': 'same-origin'},
-            json={'permissions': '0', 'authorize': True}, impersonate='chrome', timeout=30)
-        if r.status_code != 200:
-            logger.error(f'Consent failed ({r.status_code})')
-            return False
-        logger.info('Oauth consent ok')
-
-        if _stop.is_set():
-            return False
-        page.get(r.json()['location'])
-        page.wait.doc_loaded(timeout=20)
-        if _stop.is_set():
-            return False
-        page.get(vote_url)
-        page.wait.doc_loaded(timeout=20)
-        logger.info('On vote page')
-
-        _dismiss_consent(page)
-        button = _wait_vote_ready(page)
-        if button == 'already':
-            logger.info('Already voted')
-            return True
-        if button is None:
-            logger.warning('Vote button never became ready within timeout')
-            return False
-
-        if not _click_vote(page, button):
-            logger.warning('Failed to click vote button')
-            return False
-        logger.info('Clicked, waiting for confirmation...')
-
-        success = _wait_confirmation(page)
-        logger.info(f'Vote: {success}')
-        time.sleep(1)
-        return success
-    finally:
-        try:
-            page.quit()
-        except Exception:
-            pass
-
-
-def _click_containing(page, *words):
-    for b in (page.eles('css:button') or []):
-        try:
-            if any(w in (b.text or '').lower() for w in words):
-                b.click()
-                return True
-        except Exception:
-            pass
-    return False
-
-
-def _dismiss_consent(page):
-    _click_containing(page, 'agree', 'accept')
-    _click_containing(page, 'reject', 'refuse', 'decline')
-    time.sleep(0.5)
-
-
-def _body(page):
-    try:
-        el = page.ele('tag:body')
-        return (el.text or '').lower() if el else ''
-    except Exception:
-        return ''
-
-
-def _wait_vote_ready(page):
-    for _ in range(35):
-        if _stop.is_set():
-            return None
-        try:
-            button = page.ele('css:button.button-primary', timeout=1)
-        except Exception:
-            button = None
-        if button is not None:
-            try:
-                if button.states.is_enabled:
-                    return button
-            except Exception:
-                pass
-        if 'already' in _body(page) or 'vote again' in _body(page):
-            return 'already'
-        _dismiss_consent(page)
-        time.sleep(1)
-    return None
-
-
-def _click_vote(page, button):
-    try:
-        button.click()
-        return True
-    except Exception:
-        pass
-    try:
-        page.run_js('let b=document.querySelector("button.button-primary");if(b)b.click();')
-        return True
-    except Exception:
+        proc = subprocess.run(
+            ['node', VOTE_SCRIPT],
+            input=payload, capture_output=True, text=True, timeout=180,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error('vote.js timed out after 180s')
         return False
 
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        logger.error(f'vote.js returned invalid output: stdout={proc.stdout!r} stderr={proc.stderr!r}')
+        return False
 
-def _wait_confirmation(page):
-    for _ in range(15):
-        if _stop.is_set():
-            return False
-        time.sleep(1)
-        body_text = _body(page)
-        if any(k in body_text for k in ('thanks for voting', 'thank you for voting', 'voted for', 'vote received')):
-            return True
-        try:
-            button = page.ele('css:button.button-primary', timeout=1)
-            if button is not None and not button.states.is_enabled:
-                return True
-        except Exception:
-            pass
-        if 'already' in body_text or 'vote again' in body_text:
-            return False
+    if result.get('success'):
+        logger.info(f'Vote: {result.get("message")}')
+        return True
+
+    logger.warning(f'Vote failed: {result.get("message")}')
+    if proc.stderr:
+        logger.warning(f'vote.js stderr: {proc.stderr.strip()}')
     return False
 
 
