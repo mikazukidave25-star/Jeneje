@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     ca-certificates \
+    procps \
     chromium \
     fonts-liberation \
     libnss3 \
