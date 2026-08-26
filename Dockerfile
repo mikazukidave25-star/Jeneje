@@ -48,6 +48,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY node_captcha_solver/package.json node_captcha_solver/package.json
+# Puppeteer would otherwise download its own ~200MB Chromium build - skip that
+# and reuse the system Chromium already installed above (vote.js passes its
+# path in via executablePath).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 RUN cd node_captcha_solver && npm install --omit=dev
 
 COPY . .
