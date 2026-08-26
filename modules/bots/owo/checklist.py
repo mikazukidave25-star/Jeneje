@@ -108,7 +108,7 @@ class Checklist:
             await Checklist._claim(client, message)
 
         client.checklist_spam = bool(daily[0] or week[0])
-        client.logger.info(f'Checklist turn {'ON' if client.checklist_spam else 'OFF'} spam')
+        client.logger.info(f"Checklist turn {'ON' if client.checklist_spam else 'OFF'} spam")
         return True
 
     @staticmethod
