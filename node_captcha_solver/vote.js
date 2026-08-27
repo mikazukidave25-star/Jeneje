@@ -61,11 +61,25 @@ async function run({ token, botId, chromePath, captchalyApiKey }) {
                 '--disable-gpu',
                 '--ignore-certificate-errors',
                 '--disable-blink-features=AutomationControlled',
+                // Trim memory usage - RAM is tight on a free instance, and this
+                // only needs to load a couple of simple pages, not act as a
+                // full browser.
+                '--disable-extensions',
+                '--disable-background-networking',
+                '--disable-default-apps',
+                '--disable-sync',
+                '--disable-translate',
+                '--metrics-recording-only',
+                '--mute-audio',
+                '--no-first-run',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--js-flags=--max-old-space-size=128',
             ],
         });
 
         const page = await browser.newPage();
-        await page.setViewport({ width: 1920, height: 1080 });
+        await page.setViewport({ width: 1280, height: 800 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
         const injectToken = (t) => {
@@ -172,4 +186,3 @@ process.stdin.on('end', async () => {
         process.exitCode = 1;
     }
 });
-
